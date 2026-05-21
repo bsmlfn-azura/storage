@@ -260,14 +260,18 @@
     // 4. OTENTIKASI (LOGIN)
     // ==========================================
     function checkAuth() {
-        const token = gapi.client.getToken();
-        if (token && token.access_token) {
-            updateUIOnSignIn(token.access_token);
-        } else {
-            document.getElementById('loginModal').style.display = 'flex';
-            document.getElementById('statusDot').classList.remove('active');
-            document.getElementById('userName').innerText = "Belum Login";
-        }
+    const token = gapi.client.getToken();
+    if (token && token.access_token) {
+        updateUIOnSignIn(token.access_token);
+    } else {
+        // PERUBAHAN DI SINI:
+        // Jangan tampilkan loginModal saat pertama buka.
+        // Ubah status jadi "Mode Tamu" saja.
+        document.getElementById('loginModal').style.display = 'none'; 
+        document.getElementById('statusDot').classList.remove('active');
+        document.getElementById('userName').innerText = "Mode Tamu (Publik)";
+        document.getElementById('signOutBtn').style.display = 'none';
+            }
     }
 
     // FUNGSI LOGIN YANG TADI HILANG (INI PENTING!)
@@ -300,12 +304,16 @@
     }
 
     async function updateUIOnSignIn(accessToken) {
-        document.getElementById('loginModal').style.display = 'none';
-        document.getElementById('statusDot').classList.add('active');
-        document.getElementById('userName').innerText = "Terhubung ke Drive";
-        document.getElementById('signOutBtn').style.display = 'block';
-        await ensureAppFolder();
-    }
+    document.getElementById('loginModal').style.display = 'none';
+    document.getElementById('statusDot').classList.add('active');
+    document.getElementById('userName').innerText = "Terhubung ke Drive";
+    document.getElementById('signOutBtn').style.display = 'block';
+    
+    await ensureAppFolder();
+    
+    // Otomatis pindah ke tab Upload setelah login berhasil
+    switchTab('upload'); 
+}
 
     // ==========================================
     // 5. FIREBASE REAL-TIME DATA (PENCARIAN)
@@ -488,11 +496,35 @@
 
     // UI Helpers
     function switchTab(tabName) {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-        event.target.classList.add('active');
-        document.getElementById(tabName + 'Section').classList.add('active');
+    // 1. Ganti tampilan tombol tab
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    
+    // Karena event ini dipanggil saat klik, kita gunakan event.currentTarget
+    // Jika dipanggil manual dari kode lain, tangani error
+    if (event && event.currentTarget) {
+        event.currentTarget.classList.add('active');
+    } else {
+        // Fallback jika dipanggil manual
+        const btns = document.querySelectorAll('.tab-btn');
+        if(tabName === 'search') btns[0].classList.add('active');
+        if(tabName === 'upload') btns[1].classList.add('active');
     }
+    
+    document.getElementById(tabName + 'Section').classList.add('active');
+
+    // 2. LOGIKA BARU: Cek Login Hanya Saat Mau Upload
+    if (tabName === 'upload') {
+        const token = gapi.client.getToken();
+        // Jika token tidak ada (belum login), maka tampilkan Modal Login
+        if (!token || !token.access_token) {
+            document.getElementById('loginModal').style.display = 'flex';
+        } else {
+            // Jika sudah login, pastikan folder siap
+            ensureAppFolder();
+        }
+    }
+}
     function showToast(msg, type = 'success') {
         const container = document.getElementById('toastContainer');
         const toast = document.createElement('div');
