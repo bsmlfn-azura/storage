@@ -495,36 +495,67 @@
     }
 
     // UI Helpers
+        // ==========================================
+    // FUNGSI SWITCH TAB (DIPERBAIKI)
+    // ==========================================
     function switchTab(tabName) {
-    // 1. Ganti tampilan tombol tab
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    
-    // Karena event ini dipanggil saat klik, kita gunakan event.currentTarget
-    // Jika dipanggil manual dari kode lain, tangani error
-    if (event && event.currentTarget) {
-        event.currentTarget.classList.add('active');
-    } else {
-        // Fallback jika dipanggil manual
-        const btns = document.querySelectorAll('.tab-btn');
-        if(tabName === 'search') btns[0].classList.add('active');
-        if(tabName === 'upload') btns[1].classList.add('active');
-    }
-    
-    document.getElementById(tabName + 'Section').classList.add('active');
-
-    // 2. LOGIKA BARU: Cek Login Hanya Saat Mau Upload
-    if (tabName === 'upload') {
-        const token = gapi.client.getToken();
-        // Jika token tidak ada (belum login), maka tampilkan Modal Login
-        if (!token || !token.access_token) {
-            document.getElementById('loginModal').style.display = 'flex';
+        // 1. Handle Section (Tampilkan/Sembunyikan konten)
+        document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+        
+        const targetSection = document.getElementById(tabName + 'Section');
+        if (targetSection) {
+            targetSection.classList.add('active');
         } else {
-            // Jika sudah login, pastikan folder siap
-            ensureAppFolder();
+            console.error("Section tidak ditemukan:", tabName + 'Section');
+            return; // Stop jika section tidak ada
+        }
+
+        // 2. Handle Tombol Tab (Highlight tombol yang aktif)
+        // Kita TIDAK menggunakan 'event.currentTarget' lagi agar tidak error jika dipanggil manual
+        const buttons = document.querySelectorAll('.tab-btn');
+        buttons.forEach(btn => btn.classList.remove('active')); // Reset semua tombol
+
+        // Highlight tombol berdasarkan urutan index (Search = 0, Upload = 1)
+        if (tabName === 'search') {
+            if(buttons[0]) buttons[0].classList.add('active');
+        } else if (tabName === 'upload') {
+            if(buttons[1]) buttons[1].classList.add('active');
+        }
+
+        // 3. Cek Login (Hanya jika masuk tab Upload)
+        if (tabName === 'upload') {
+            const token = gapi.client.getToken();
+            if (!token || !token.access_token) {
+                const modal = document.getElementById('loginModal');
+                if(modal) modal.style.display = 'flex';
+            } else {
+                // Jika sudah login, pastikan folder siap
+                ensureAppFolder();
+            }
         }
     }
-}
+
+    // ==========================================
+    // FUNGSI UPDATE UI SETELAH LOGIN
+    // ==========================================
+    async function updateUIOnSignIn(accessToken) {
+        // Sembunyikan Modal dan Update Tampilan Header
+        const modal = document.getElementById('loginModal');
+        const statusDot = document.getElementById('statusDot');
+        const userName = document.getElementById('userName');
+        const signOutBtn = document.getElementById('signOutBtn');
+
+        if(modal) modal.style.display = 'none';
+        if(statusDot) statusDot.classList.add('active');
+        if(userName) userName.innerText = "Terhubung ke Drive";
+        if(signOutBtn) signOutBtn.style.display = 'block';
+        
+        await ensureAppFolder();
+        
+        // Panggil switchTab secara MANUAL (tanpa event klik)
+        // Ini sekarang aman karena switchTab sudah diperbaiki
+        switchTab('upload'); 
+    }
     function showToast(msg, type = 'success') {
         const container = document.getElementById('toastContainer');
         const toast = document.createElement('div');
