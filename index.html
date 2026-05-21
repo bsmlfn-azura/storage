@@ -10,6 +10,8 @@
     <!-- Google API Client Library -->
     <script src="https://apis.google.com/js/api.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
     <style>
         :root {
@@ -182,378 +184,164 @@
     </main>
 
     <div id="toastContainer"></div>
-
     <script>
-        // ==========================================
-        // KONFIGURASI GOOGLE (WAJIB DIISI)
-        // ==========================================
-        const CLIENT_ID = '373561411344-5e6t17606k5t811ll7hah5ldd9gj7rhd.apps.googleusercontent.com'; 
-        const API_KEY = ''; // Opsional untuk beberapa endpoint, tapi OAuth biasanya cukup untuk user Drive
-        const SCOPES = 'https://www.googleapis.com/auth/drive'; 
+    // ==========================================
+    // 1. KONFIGURASI FIREBASE (PASTE DARI CONSOLE)
+    // ==========================================
+    // Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyD1Roeoo8Xd0vImNbspJIpsgrgyyoQEWkQ",
+  authDomain: "sertifikatapp.firebaseapp.com",
+  databaseURL: "https://sertifikatapp-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "sertifikatapp",
+  storageBucket: "sertifikatapp.firebasestorage.app",
+  messagingSenderId: "797870700819",
+  appId: "1:797870700819:web:fc91e9029f824de44a42e6",
+  measurementId: "G-PZEGHJX337"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
+
+    // Inisialisasi Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // Variabel penyimpanan sementara
+    let certificates = []; 
+    
+    // ==========================================
+    // 2. LOGIKA PENCARIAN (OTOMATIS REAL-TIME)
+    // ==========================================
+    
+    // Fungsi ini jalan otomatis saat ada data baru di Database
+    db.ref('certificates').on('value', (snapshot) => {
+        const data = snapshot.val();
+        certificates = [];
         
-        let tokenClient;
-        let gapiInited = false;
-        let gisInited = false;
-        let pendingFiles = []; // Buffer file sebelum upload
-        let FOLDER_ID = null; // ID folder khusus aplikasi
+        if (data) {
+            // Ubah format object Firebase menjadi Array
+            Object.keys(data).forEach(key => {
+                certificates.push({
+                    id: key,
+                    ...data[key]
+                });
+            });
+        }
+        
+        // Refresh tampilan pencarian jika user sedang mengetik
+        const query = document.getElementById('searchInput')?.value.toLowerCase().trim();
+        if (query) {
+            filterAndRender(query);
+        } else {
+            renderResults([]); // Kosongkan jika belum cari
+        }
+    });
 
-        // ==========================================
-        // INISIALISASI GOOGLE API
-        // ==========================================
-        window.addEventListener('load', () => {
-            if(CLIENT_ID === 'MASUKKAN_CLIENT_ID_ANDA_DISINI.apps.googleusercontent.com') {
-                alert("PERINGATAN: Anda belum memasukkan Client ID di dalam kode script!");
-                return;
-            }
+    // Listener Input Pencarian
+    document.addEventListener('DOMContentLoaded', () => {
+        const searchInput = document.getElementById('searchInput');
+        if(searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                filterAndRender(e.target.value.toLowerCase().trim());
+            });
+        }
+    });
 
-            gapiLoaded();
-            gisLoaded();
+    function filterAndRender(query) {
+        if (!query) {
+            document.getElementById('searchResults').innerHTML = '<p style="text-align:center;">Ketik nama untuk mencari.</p>';
+            return;
+        }
+
+        const results = certificates.filter(cert => 
+            cert.name.toLowerCase().includes(query)
+        );
+        renderResults(results);
+    }
+
+    function renderResults(files) {
+        const resultsDiv = document.getElementById('searchResults');
+        resultsDiv.innerHTML = '';
+
+        if (!files || files.length === 0) {
+            resultsDiv.innerHTML = '<p style="text-align:center; padding: 2rem; color: #666;">Data tidak ditemukan.</p>';
+            return;
+        }
+
+        files.forEach(file => {
+            const card = document.createElement('div');
+            card.className = 'cert-card';
+            // Gunakan link download langsung dari Google Drive
+            card.innerHTML = `
+                <div style="display: flex; gap: 1rem; align-items: start;">
+                    <div style="width: 50px; height: 50px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; border-radius: 8px;">
+                        <i class="fa-solid fa-file-certificate"></i>
+                    </div>
+                    <div style="flex: 1;">
+                        <h3 style="font-size: 1.1rem; margin-bottom: 0.25rem;">${file.name}</h3>
+                        <div style="font-size: 0.85rem; color: #64748b;">
+                            Diupload: ${file.date}
+                        </div>
+                    </div>
+                </div>
+                <div class="cert-actions">
+                    <a href="${file.link}" target="_blank" class="btn btn-primary" style="width: 100%; justify-content: center; text-decoration: none; display:flex; align-items:center; justify-content:center; padding: 0.6rem; border-radius: 8px; color: white; background: #2563eb;">
+                        <i class="fa-solid fa-download" style="margin-right:8px;"></i> Download
+                    </a>
+                </div>
+            `;
+            resultsDiv.appendChild(card);
         });
+    }
 
-        function gapiLoaded() {
-            gapi.load('client', initializeGapiClient);
-        }
+    // ==========================================
+    // 3. LOGIKA UPLOAD (SAVE KE FIREBASE)
+    // ==========================================
+    
+    // Ini adalah modifikasi dari fungsi upload Google Drive Anda sebelumnya
+    // Setelah file berhasil diupload ke Drive, kita SIMPAN LINK-NYA ke Firebase
 
-        async function initializeGapiClient() {
-            await gapi.client.init({
-                // apiKey: API_KEY, // Biasanya tidak butuh API Key jika hanya pakai OAuth scope drive
-                discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+    async function saveToFirebase(name, driveLink, date) {
+        try {
+            await db.ref('certificates').push({
+                name: name,
+                link: driveLink,
+                date: date
             });
-            gapiInited = true;
-            maybeEnableButtons();
+            console.log("Data tersimpan di Firebase");
+        } catch (error) {
+            console.error("Gagal simpan ke Firebase:", error);
+            alert("Gagal menyimpan data ke database.");
         }
+    }
 
-        function gisLoaded() {
-            tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: CLIENT_ID,
-                scope: SCOPES,
-                callback: '', // defined later
-            });
-            gisInited = true;
-            maybeEnableButtons();
-        }
+    // ... (Kode Login Google & Upload Drive tetap sama seperti sebelumnya) ...
+    
+    // PADA BAGIAN AKHIR FUNGSI 'processUpload' (setelah upload ke Drive berhasil):
+    // Panggil fungsi saveToFirebase()
+    /*
+    // CONTOH INTEGRASI DI DALAM processUpload():
+    // ...
+    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?...', { ... });
+    const result = await response.json();
+    
+    // 1. Buat Link Download
+    const downloadLink = `https://drive.google.com/uc?export=download&id=${result.id}`;
+    
+    // 2. Simpan ke Firebase (Yang akan otomatis muncul di pencarian User)
+    await saveToFirebase(item.newName, downloadLink, new Date().toLocaleDateString('id-ID'));
+    // ...
+    */
 
-        function maybeEnableButtons() {
-            if (gapiInited && gisInited) {
-                document.getElementById('loading').style.display = 'none';
-                checkAuth();
-            }
-        }
-
-        // ==========================================
-        // OTENTIKASI
-        // ==========================================
-        function checkAuth() {
-            const token = gapi.client.getToken();
-            if (token && token.access_token) {
-                updateUIOnSignIn(gapi.client.getToken().access_token);
-            } else {
-                document.getElementById('loginModal').style.display = 'flex';
-                document.getElementById('statusDot').classList.remove('active');
-                document.getElementById('userName').innerText = "Belum Login";
-            }
-        }
-
-        function handleAuthClick() {
-            tokenClient.callback = async (resp) => {
-                if (resp.error !== undefined) {
-                    console.error(resp);
-                    return;
-                }
-                updateUIOnSignIn(gapi.client.getToken().access_token);
-            };
-
-            if (gapi.client.getToken() === null) {
-                tokenClient.requestAccessToken({prompt: 'consent'});
-            } else {
-                tokenClient.requestAccessToken({prompt: ''});
-            }
-        }
-
-        function handleSignOutClick() {
-            const token = gapi.client.getToken();
-            if (token !== null) {
-                google.accounts.oauth2.revoke(token.access_token);
-                gapi.client.setToken('');
-                document.getElementById('loginModal').style.display = 'flex';
-                document.getElementById('statusDot').classList.remove('active');
-                document.getElementById('userName').innerText = "Belum Login";
-                document.getElementById('signOutBtn').style.display = 'none';
-                document.getElementById('searchResults').innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: var(--text-muted);">Silakan login kembali.</p>';
-            }
-        }
-
-        async function updateUIOnSignIn(accessToken) {
-            document.getElementById('loginModal').style.display = 'none';
-            document.getElementById('statusDot').classList.add('active');
-            document.getElementById('userName').innerText = "Terhubung ke Drive";
-            document.getElementById('signOutBtn').style.display = 'block';
-
-            // Cek/Buat Folder Aplikasi
-            await ensureAppFolder();
-            
-            // Auto refresh list jika di tab search
-            if(document.getElementById('searchSection').style.display !== 'none') {
-                searchCertificates();
-            }
-        }
-
-        // ==========================================
-        // LOGIC GOOGLE DRIVE (CRUD)
-        // ==========================================
-
-        // 1. Memastikan Folder "AppSertifikat" ada
-        async function ensureAppFolder() {
-            try {
-                // Cari folder
-                const response = await gapi.client.drive.files.list({
-                    q: "name='AppSertifikat' and mimeType='application/vnd.google-apps.folder' and trashed=false",
-                    spaces: 'drive',
-                    fields: 'files(id, name)'
-                });
-
-                if (response.result.files.length > 0) {
-                    FOLDER_ID = response.result.files[0].id;
-                    console.log("Folder ditemukan:", FOLDER_ID);
-                } else {
-                    // Buat folder baru
-                    const createRes = await gapi.client.drive.files.create({
-                        resource: { name: 'AppSertifikat', mimeType: 'application/vnd.google-apps.folder' }
-                    });
-                    FOLDER_ID = createRes.result.id;
-                    console.log("Folder dibuat:", FOLDER_ID);
-                    showToast("Folder 'AppSertifikat' dibuat di Drive Anda", "success");
-                }
-            } catch (err) {
-                console.error(err);
-                showToast("Gagal menyiapkan folder Drive", "error");
-            }
-        }
-
-        // 2. Pencarian (Search)
-        let searchTimeout;
-        function debounceSearch() {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(searchCertificates, 500);
-        }
-
-        async function searchCertificates() {
-            const query = document.getElementById('searchInput').value.toLowerCase().trim();
-            const resultsDiv = document.getElementById('searchResults');
-
-            if (!query) {
-                resultsDiv.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: var(--text-muted);">Ketik nama untuk mencari.</p>';
-                return;
-            }
-
-            resultsDiv.innerHTML = '<p style="grid-column: 1/-1; text-align: center;">Mencari di Drive...</p>';
-
-            if (!FOLDER_ID) return;
-
-            try {
-                // Mencari file dalam folder aplikasi yang namanya mengandung query
-                const response = await gapi.client.drive.files.list({
-                    q: `name contains '${query}' and '${FOLDER_ID}' in parents and trashed=false`,
-                    fields: 'files(id, name, createdTime, mimeType, webViewLink, thumbnailLink)'
-                });
-
-                const files = response.result.files;
-                renderSearchResults(files);
-            } catch (err) {
-                console.error(err);
-                resultsDiv.innerHTML = '<p style="color: var(--danger);">Gagal mengambil data.</p>';
-            }
-        }
-
-        function renderSearchResults(files) {
-            const resultsDiv = document.getElementById('searchResults');
-            resultsDiv.innerHTML = '';
-
-            if (!files || files.length === 0) {
-                resultsDiv.innerHTML = `
-                    <div style="grid-column: 1/-1; text-align: center; padding: 2rem;">
-                        <i class="fa-regular fa-folder-open" style="font-size: 2rem; margin-bottom: 0.5rem; color: var(--text-muted);"></i>
-                        <p>Tidak ditemukan sertifikat dengan nama tersebut.</p>
-                    </div>`;
-                return;
-            }
-
-            files.forEach(file => {
-                const isPdf = file.mimeType === 'application/pdf';
-                const icon = isPdf ? 'fa-file-pdf' : 'fa-file-image';
-                const thumb = isPdf ? 'https://picsum.photos/seed/pdf/300/200' : `https://drive.google.com/thumbnail?id=${file.id}&sz=w400`;
-
-                const card = document.createElement('div');
-                card.className = 'cert-card';
-                card.innerHTML = `
-                    <div style="display: flex; gap: 1rem; align-items: start;">
-                        <div style="width: 60px; height: 60px; background: #f1f5f9; border-radius: 8px; overflow: hidden;">
-                            <img src="${thumb}" style="width: 100%; height: 100%; object-fit: cover;">
-                        </div>
-                        <div style="flex: 1;">
-                            <h3 style="font-size: 1.1rem; margin-bottom: 0.25rem;">${file.name}</h3>
-                            <div class="cert-meta">
-                                <i class="fa-regular fa-calendar"></i> ${new Date(file.createdTime).toLocaleDateString('id-ID')}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="cert-actions">
-                        <a href="https://drive.google.com/uc?export=download&id=${file.id}" target="_blank" class="btn btn-primary" style="width: 100%; justify-content: center; text-decoration: none;">
-                            <i class="fa-solid fa-download"></i> Download File
-                        </a>
-                    </div>
-                `;
-                resultsDiv.appendChild(card);
-            });
-        }
-
-        // 3. Upload
-        const dropZone = document.getElementById('dropZone');
-        const fileInput = document.getElementById('fileInput');
-        const uploadList = document.getElementById('uploadList');
-        const uploadBtn = document.getElementById('uploadBtn');
-
-        dropZone.onclick = () => fileInput.click();
-        
-        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('dragover'); };
-        dropZone.ondragleave = () => dropZone.classList.remove('dragover');
-        dropZone.ondrop = (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('dragover');
-            handleFileSelect(e.dataTransfer.files);
-        };
-        fileInput.onchange = (e) => handleFileSelect(e.target.files);
-
-        function handleFileSelect(files) {
-            Array.from(files).forEach(file => {
-                pendingFiles.push({
-                    file: file,
-                    id: Date.now() + Math.random(),
-                    status: 'pending' // pending, uploading, done
-                });
-            });
-            renderUploadList();
-        }
-
-        function renderUploadList() {
-            uploadList.innerHTML = '';
-            if(pendingFiles.length === 0) {
-                uploadBtn.disabled = true;
-                return;
-            }
-            uploadBtn.disabled = false;
-
-            pendingFiles.forEach((item, index) => {
-                const div = document.createElement('div');
-                div.className = 'file-item';
-                let statusHtml = '';
-                if(item.status === 'done') statusHtml = '<span style="color: var(--success); font-size: 0.8rem;"><i class="fa-solid fa-check"></i> Selesai</span>';
-                else if(item.status === 'uploading') statusHtml = '<span style="color: var(--primary); font-size: 0.8rem;"><i class="fa-solid fa-spinner fa-spin"></i> Mengupload...</span>';
-                else statusHtml = '<span style="color: var(--text-muted); font-size: 0.8rem;">Menunggu</span>';
-
-                div.innerHTML = `
-                    <div style="width: 40px; height: 40px; background: #eff6ff; color: var(--primary); display: flex; align-items: center; justify-content: center; border-radius: 8px;">
-                        <i class="fa-regular ${item.file.type.includes('pdf') ? 'fa-file-pdf' : 'fa-file-image'}"></i>
-                    </div>
-                    <div class="file-info">
-                        <div style="font-weight: 500;">${item.file.name}</div>
-                        <input type="text" class="file-name-input" value="${item.file.name}" onchange="updateFileName(${index}, this.value)">
-                    </div>
-                    <div style="text-align: right;">
-                        ${statusHtml}
-                        <button class="btn btn-secondary" style="margin-top: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="removePendingFile(${index})">Hapus</button>
-                    </div>
-                `;
-                uploadList.appendChild(div);
-            });
-        }
-
-        function updateFileName(index, newName) {
-            pendingFiles[index].newName = newName;
-        }
-
-        function removePendingFile(index) {
-            pendingFiles.splice(index, 1);
-            renderUploadList();
-        }
-
-        async function processUpload() {
-            if (!FOLDER_ID) {
-                showToast("Menunggu koneksi folder...", "error");
-                await ensureAppFolder();
-            }
-
-            const filesToUpload = pendingFiles.filter(f => f.status !== 'done');
-            
-            for (const item of filesToUpload) {
-                item.status = 'uploading';
-                renderUploadList();
-
-                const metadata = {
-                    name: item.newName || item.file.name,
-                    parents: [FOLDER_ID]
-                };
-
-                const form = new FormData();
-                form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-                form.append('file', item.file);
-
-                try {
-                    // Gunakan fetch API ke Google Drive Upload Endpoint
-                    // Kita perlu access token dari gapi
-                    const token = gapi.client.getToken().access_token;
-                    
-                    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-                        method: 'POST',
-                        headers: new Headers({ 'Authorization': 'Bearer ' + token }),
-                        body: form
-                    });
-
-                    if (!response.ok) throw new Error('Upload failed');
-
-                    item.status = 'done';
-                    showToast(`${item.file.name} berhasil diupload`, 'success');
-                } catch (e) {
-                    console.error(e);
-                    showToast(`Gagal upload ${item.file.name}`, 'error');
-                    // Tetap lanjut ke file berikutnya meskipun gagal
-                }
-                renderUploadList();
-            }
-            
-            // Bersihkan list yang sudah selesai setelah beberapa detik
-            setTimeout(() => {
-                pendingFiles = pendingFiles.filter(f => f.status !== 'done');
-                renderUploadList();
-            }, 3000);
-        }
-
-        // ==========================================
-        // UI HELPERS
-        // ==========================================
-        function switchTab(tabName) {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-            
-            event.target.classList.add('active');
-            document.getElementById(tabName + 'Section').classList.add('active');
-
-            if(tabName === 'search' && gapi.client.getToken()) {
-                searchCertificates();
-            }
-        }
-
-        function showToast(msg, type = 'success') {
-            const container = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type === 'success' ? '' : 'error'}`;
-            if(type === 'error') toast.style.background = '#ef4444';
-            
-            toast.innerHTML = `<span>${msg}</span>`;
-            container.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
-        }
-
-    </script>
-</body>
+</script>
+    </body>
 </html>
